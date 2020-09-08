@@ -11,6 +11,14 @@ import { sleep } from '../helpers/sleep'
 const eventEmitter = new events.EventEmitter()
 let status = null
 
+
+/**
+ * Set wpa_supplicant.conf file with countryCode, ssid and password
+ * @param {Object} params - Object of params
+ * @param {String} params.countryCode A country code based on alpha-2
+ * @param {String} params.ssid A SSID of the wifi network
+ * @param {String} params.password A password of the SSID
+ */
 export const setConfig = async ({ countryCode, ssid, password }) => {
   const fileName = '/etc/wpa_supplicant/wpa_supplicant.conf'
 
@@ -41,8 +49,11 @@ export const setConfig = async ({ countryCode, ssid, password }) => {
   fs.writeFileSync(fileName, result)
 }
 
+
+/**
+ * Start wpa_supplicant and force to return logs to logsys
+ */
 const _startWpaSupplicant = () => {
-  console.log('START WPA')
   try {
     cp.execSync(`sudo wpa_supplicant -B -i${config.IFFACE_CLIENT} -c /etc/wpa_supplicant/wpa_supplicant.conf -s`)
   } catch (err) {}
@@ -50,12 +61,20 @@ const _startWpaSupplicant = () => {
   setStatus(null)
 }
 
+
+/**
+ * If theres a wpa_supplicant being executed it will kill it.
+ */
 const _killWpaSupplicant = () => {
   try {
     cp.execSync(`sudo killall wpa_supplicant`)
   } catch (err) {}
 }
 
+/**
+ * Try to connect to an specified ssid with the file wpa_supplicant.conf
+ * @param {Boolean} hasRetried - if is false the connect function will retry to connect after a failed or retry status.
+ */
 export const connect = (hasRetried = false) => {
   return new Promise((resolve, reject) => {
     _killWpaSupplicant()
@@ -78,10 +97,18 @@ export const connect = (hasRetried = false) => {
   })
 }
 
+/**
+ * Disconnect wpa_supplicant
+ */
 export const disconnect = async () => {
   return cp.execSync(`sudo wpa_cli -i ${config.IFFACE_CLIENT} DISCONNECT`)
 }
 
+
+/**
+ * Get wpa_supplicant status
+ * @return {String} an enum of status [failed, connected, disconnected, retry]
+ */
 export const getStatus = () => status
 
 export const setStatus = _.debounce(_status => {
@@ -94,12 +121,16 @@ export const setStatus = _.debounce(_status => {
   }
 })
 
+
+/**
+ * Since wpa_supplicant doesn't return the status of the connection or even erros when it occurs
+ * we tail the log and try to get the status from there.
+ */
 const watchLogs = () => {
   const tail = cp.spawn('tail', ['-f', '/var/log/syslog'])
 
 	tail.stdout.on('data', function(data) {
     const str = data.toString()
-
 
     if (str.includes('wpa_supplicant')) {
       if (str.includes('Failed to')) setStatus('failed')
