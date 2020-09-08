@@ -9,12 +9,19 @@ import _ from 'lodash'
 import fs from 'fs'
 import cp from 'child_process'
 
-import { sleep } from '../../helpers/sleep'
+import * as wpa from '../../helpers/wpa.js'
 
 const iw = require('iwlist')(config.IFFACE)
 
+let status = null
+
 export const disconnect = async () => {
-  execIgnoreFail(`sudo wpa_cli -i ${config.IFFACE_CLIENT} DISCONNECT`)
+  try {
+    await wpa.disconnect()
+    status = 'disconnected'
+  } catch (err) {
+    throw err
+  }
 }
 
 let scanned = []
@@ -35,8 +42,6 @@ execIgnoreFail(`sudo iw dev ${config.IFFACE_CLIENT} interface add ${config.IFFAC
 const _scan = () => new Promise((resolve, reject) => {
   iw.scan((err, result) => {
     if (err) return reject(err)
-
-    console.log('SCANNED', JSON.stringify(result))
 
     if (result.length > 0) {
       scanned = result.map(d => ({ ssid: d.essid, ...d }))
@@ -61,55 +66,28 @@ export const checkIfIsConnected = () => {
 }
 
 export const connect = async (ssid, password, countryCode = config.COUNTRY) => {
+  if (status === 'connecting') return { status: 'pending', success: false }
+
   const fileName = '/etc/wpa_supplicant/wpa_supplicant.conf'
 
   const fileString = fs.readFileSync(fileName).toString()
-  const fileArray = fileString.split(/\r|\n/)
 
-  if (ssid) {
-    const findNetwork = _.findIndex(fileArray, l => _.includes(l, 'network={'))
-    const findCountry = _.findIndex(fileArray, l => _.includes(l, 'country='))
-    const findNetworkAfter = _.findIndex(fileArray, l => _.includes(l, '}'))
-    const fileEnd = (findNetwork !== -1) ? _.map(fileArray, (d, i) => {
-      if (i === findCountry) return ''
-      if (i >= findNetwork && i <= findNetworkAfter) {
-        return ''
-      }
-      return d
-    }) : fileArray
+  if (!ssid && fileString.includes('network=') === false) throw new Error('COULD_NOT_CONNECT')
+  if (!ssid && checkIfIsConnected()) return { success: true }
 
-    const result = fileEnd.join('\n').trim() + (`
+  if (ssid) wpa.setConfig({ countryCode, ssid, password })
 
-  country=${countryCode}
+  status = 'connecting'
 
-  network={
-      ssid=${JSON.stringify(ssid)}
-      ${password ? `psk=${JSON.stringify(password)}` : ''}
-  }
-  `)
-
-    fs.writeFileSync(fileName, result)
-
-    console.log('SETTED AT', fileName)
-  } else if (fileString.includes('network=') === false) {
-    throw new Error('COULD_NOT_CONNECT')
-  } else if (checkIfIsConnected()) {
-    return { success: true }
-  }
-
-  for (let i = 0; i < 3; i++) {
-    execIgnoreFail(`sudo killall wpa_supplicant`)
-    execIgnoreFail(`sudo wpa_supplicant -B -i${config.IFFACE_CLIENT} -c /etc/wpa_supplicant/wpa_supplicant.conf`)
-
-    await sleep(5000)
-    if (checkIfIsConnected() === false) execIgnoreFail(`sudo wpa_cli -i${config.IFFACE_CLIENT} RECONFIGURE`)
-    await sleep(5000)
-    if (checkIfIsConnected()) break
+  try {
+    await wpa.connect()
+    status = 'connected'
+  } catch (err) {
+    status = 'failed'
+    throw err
   }
 
   execIgnoreFail(`sudo ifconfig ${config.IFFACE_CLIENT} up`)
-
-  if (checkIfIsConnected() === false) throw new Error('COULD_NOT_CONNECT')
 
   return { success: true }
 }

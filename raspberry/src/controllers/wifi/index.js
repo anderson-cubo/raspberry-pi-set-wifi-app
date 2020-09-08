@@ -1,11 +1,15 @@
 import * as wifi from '../../services/wifi'
+import * as wpa from '../../helpers/wpa'
 
 export const list = async () => {
   return wifi.scan()
 }
 
 export const checkConnection = async () => {
-  return { status: wifi.checkIfIsConnected() ? 'connected' : 'disconnected' }
+  return {
+    status: wifi.checkIfIsConnected() ? 'connected' : 'disconnected',
+    wpaStatus: wpa.getStatus()
+  }
 }
 
 export const disable = async () => {
